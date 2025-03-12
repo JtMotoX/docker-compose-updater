@@ -103,6 +103,11 @@ done
 
 echo "If you wish to exclude any of these, add the name to the 'excludes.txt' file and run this script again."
 
+if [ "${compose_count_apply}" -eq 0 ]; then
+	echo "No services to update."
+	exit 0
+fi
+
 # PROMPT TO CONTINUE
 printf "%s " "Press enter to continue or Ctrl+C to cancel"
 read ans
