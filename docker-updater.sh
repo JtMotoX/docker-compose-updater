@@ -3,6 +3,33 @@
 set -e
 cd "$(dirname "$0")"
 
+# SET SOME DEFAULTS
+dry_run="false"
+
+# FUNCTION TO PRINT USAGE
+usage() {
+	echo "Usage: ./$(basename "$0") [--dry-run]"
+}
+
+# PARSE ARGUMENTS
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--dry-run)
+			dry_run="true"
+			shift
+			;;
+		-h|--help)
+			usage
+			exit 0
+			;;
+		*)
+			echo "Error: Invalid argument '$1'" >&2
+			usage
+			exit 1
+			;;
+	esac
+done
+
 # MAKE SURE JQ IS INSTALLED
 if ! command -v jq >/dev/null; then
 	echo "jq is required to run this script. Please install jq and try again. (https://jqlang.org/download)"
@@ -31,6 +58,11 @@ for exclude in "${excludes[@]}"; do
 	compose_json_apply="$(printf '%s' "${compose_json_apply}" | jq -r "map(select(.Name != \"${exclude}\"))")"
 done
 compose_count_apply="$(printf '%s' "${compose_json_apply}" | jq -r 'length')"
+
+# CHECK IF DRY RUN
+if [ "${dry_run}" = "true" ]; then
+	echo "-- This is a dry run. No changes will be made --"
+fi
 
 # LIST ALL RUNNING DOCKER COMPOSE SERVICES
 echo "This will update ${compose_count_apply} running docker compose services:"
@@ -83,8 +115,17 @@ for compose_b64 in $(printf '%s' "${compose_json_apply}" | jq -r '.[] | @base64'
 	compose_file="$(echo "${compose_entry}" | jq -r '.ConfigFiles')"
 	compose_dir="$(dirname "${compose_file}")"
 	cd "${compose_dir}"
-	echo "Updating '${compose_name}'..."
-	docker compose pull; docker compose up --force-recreate --build --pull always -d
+	printf "Updating '${compose_name}'..."
+	if [ "${dry_run}" = "true" ]; then
+		printf " (dry run)"
+	fi
+	printf "\n"
+	command="docker compose pull; docker compose up --force-recreate --build --pull always -d"
+	if [ "${dry_run}" = "true" ]; then
+		echo "Command To Be Executed: ${command}"
+	else
+		eval "${command}"
+	fi
 done
 
 echo '---'
