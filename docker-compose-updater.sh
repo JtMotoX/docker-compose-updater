@@ -40,7 +40,7 @@ fi
 excludes=()
 if [ -f excludes.txt ]; then
 	while IFS= read -r line || [ -n "$line" ]; do
-		if [ "${line}" = "" ]; then
+		if [ "${line}" = "" ] || { echo "${line}" | grep -q -E '^\s*#'; }; then
 			continue
 		fi
 		line="$(echo "${line}" | tr -d '[:space:]')"
@@ -65,7 +65,7 @@ if [ "${dry_run}" = "true" ]; then
 fi
 
 # LIST ALL RUNNING DOCKER COMPOSE SERVICES
-echo "This will update ${compose_count_apply} running docker compose services:"
+echo "This will update ${compose_count_apply} of ${compose_count} running docker compose services:"
 for compose_b64 in $(printf '%s' "${compose_json}" | jq -r '.[] | @base64'); do
 	compose_entry="$(echo "${compose_b64}" | base64 -d)"
 	compose_name="$(echo "${compose_entry}" | jq -r '.Name')"
