@@ -120,7 +120,7 @@ for compose_b64 in $(printf '%s' "${compose_json_apply}" | jq -r '.[] | @base64'
 		printf " (dry run)"
 	fi
 	printf "\n"
-	command="docker compose pull; docker compose up --force-recreate --build --pull always -d"
+	command="docker compose up --force-recreate --build --pull always -d"
 	if [ "${dry_run}" = "true" ]; then
 		echo "Command To Be Executed: ${command}"
 	else

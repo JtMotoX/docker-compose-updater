@@ -5,4 +5,3 @@ This is a utility that will update all the docker compose services running on th
 ### TODO
 
 - Add an `--exclude-recent` argument that will exclude services that have already been updated in the past 24 hours.
-- Script fails if a custom image name is referenced for a custom build in a docker-compose.yml. Need to add support for this.
