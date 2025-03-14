@@ -21,6 +21,10 @@ while [ "$#" -gt 0 ]; do
             dry_run="true"
             shift
             ;;
+		--selected)
+			user_preselected_options="$2"
+			shift 2
+			;;
         -h|--help)
             usage
             exit 0
@@ -82,7 +86,6 @@ get_compose_data() {
 
 	# LIST ALL RUNNING DOCKER COMPOSE SERVICES
 	services_list=()
-	preselected_options=""
 	for compose_b64 in $(printf '%s' "${compose_json}" | jq -r '.[] | @base64'); do
 		compose_entry="$(echo "${compose_b64}" | base64 -d)"
 		compose_name="$(echo "${compose_entry}" | jq -r '.Name')"
@@ -118,8 +121,14 @@ services_list_formatted="$(for item in "${services_list[@]}"; do echo -e "${item
 while IFS= read -r item; do
 	compose_created_days_ago="$(echo "${item}" | awk -F'~' '{print $2}')"
 	entry="$(echo "${item}" | awk -F'~' '{print $1}')"
-	if [ "${compose_created_days_ago}" -gt 7 ]; then
-		preselected_options="${preselected_options},${entry}"
+	if [ "${user_preselected_options}" != "" ]; then
+		if echo "$(echo "${user_preselected_options}" | sed 's/,/ /g')" | grep -wq "$(echo "${entry}" | awk '{print $1}')"; then
+			preselected_options="${preselected_options},${entry}"
+		fi
+	else
+		if [ "${compose_created_days_ago}" -gt 7 ]; then
+			preselected_options="${preselected_options},${entry}"
+		fi
 	fi
 	services_list_final+=("${entry}")
 done <<< "${services_list_formatted}"
