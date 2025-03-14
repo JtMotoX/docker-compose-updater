@@ -36,6 +36,10 @@ if ! command -v jq >/dev/null; then
 	exit 1
 fi
 
+if [ "${is_docker}" = "true" ]; then
+	path_prefix="/host"
+fi
+
 # LOAD EXCLUDE LIST FROM excludes.txt INTO AN ARRAY
 excludes=()
 if [ -f excludes.txt ]; then
@@ -71,7 +75,7 @@ for compose_b64 in $(printf '%s' "${compose_json}" | jq -r '.[] | @base64'); do
 	compose_name="$(echo "${compose_entry}" | jq -r '.Name')"
 	compose_file="$(echo "${compose_entry}" | jq -r '.ConfigFiles')"
 	compose_dir="$(dirname "${compose_file}")"
-	cd "${compose_dir}"
+	cd "${path_prefix}${compose_dir}"
 	compose_data="$(docker compose ps --format json)"
 	compose_running="$(printf '%s' "${compose_data}" | jq -r -s '.[0].RunningFor')"
 	compose_created="$(printf '%s' "${compose_data}" | jq -r -s '.[0].CreatedAt')"
@@ -119,7 +123,7 @@ for compose_b64 in $(printf '%s' "${compose_json_apply}" | jq -r '.[] | @base64'
 	compose_name="$(echo "${compose_entry}" | jq -r '.Name')"
 	compose_file="$(echo "${compose_entry}" | jq -r '.ConfigFiles')"
 	compose_dir="$(dirname "${compose_file}")"
-	cd "${compose_dir}"
+	cd "${path_prefix}${compose_dir}"
 	printf "Updating '${compose_name}'..."
 	if [ "${dry_run}" = "true" ]; then
 		printf " (dry run)"
