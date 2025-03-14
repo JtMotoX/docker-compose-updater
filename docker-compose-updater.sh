@@ -158,7 +158,11 @@ for compose_b64 in $(printf '%s' "${compose_json_apply}" | jq -r '.[] | @base64'
 	if ! echo "${selected_services}" | grep -wq "${compose_name}"; then continue; fi
     compose_file="$(echo "${compose_entry}" | jq -r '.ConfigFiles')"
     compose_dir="$(dirname "${compose_file}")"
-    cd "${path_prefix}${compose_dir}"
+	if [ "${path_prefix}" != "" ]; then
+		mkdir -p "$(dirname "${compose_dir}")"
+		ln -s "${path_prefix}${compose_dir}" "${compose_dir}"
+	fi
+    cd "${compose_dir}"
     echo "--- Updating '${compose_name}'...${dry_run_suffix} ---" | gum style --foreground 212
     command="docker compose up --force-recreate --build --pull always -d"
     if [ "${dry_run}" = "true" ]; then
@@ -166,6 +170,9 @@ for compose_b64 in $(printf '%s' "${compose_json_apply}" | jq -r '.[] | @base64'
     else
         eval "${command}"
     fi
+	if [ "${path_prefix}" != "" ] && [ -L ${compose_dir} ] && [ -e ${compose_dir} ]; then
+		rm -f "${compose_dir}"
+	fi
 done
 
 echo '---' | gum style --foreground 212
