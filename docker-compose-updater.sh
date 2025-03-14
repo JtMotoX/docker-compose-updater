@@ -6,136 +6,160 @@ cd "$(dirname "$0")"
 # SET SOME DEFAULTS
 dry_run="false"
 
+# SET SOME COLORS
+export GUM_CHOOSE_CURSOR_FOREGROUND=214
+
 # FUNCTION TO PRINT USAGE
 usage() {
-	echo "Usage: ./$(basename "$0") [--dry-run]"
+    echo "Usage: ./$(basename "$0") [--dry-run]" | gum style --foreground 212
 }
 
 # PARSE ARGUMENTS
 while [ "$#" -gt 0 ]; do
-	case "$1" in
-		--dry-run)
-			dry_run="true"
-			shift
-			;;
-		-h|--help)
-			usage
-			exit 0
-			;;
-		*)
-			echo "Error: Invalid argument '$1'" >&2
-			usage
-			exit 1
-			;;
-	esac
+    case "$1" in
+        --dry-run)
+            dry_run="true"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Error: Invalid argument '$1'" | gum style --foreground 196
+            usage
+            exit 1
+            ;;
+    esac
 done
 
 # MAKE SURE JQ IS INSTALLED
 if ! command -v jq >/dev/null; then
-	echo "jq is required to run this script. Please install jq and try again. (https://jqlang.org/download)"
+    echo "ERROR: jq is required to run this script. Please install jq and try again. (https://jqlang.org/download)"
+    exit 1
+fi
+
+# MAKE SURE GUM IS INSTALLED
+if ! command -v gum >/dev/null; then
+	echo "ERROR: gum is required to run this script. Please install gum and try again. (https://github.com/charmbracelet/gum?tab=readme-ov-file#installation)"
 	exit 1
 fi
 
 if [ "${is_docker}" = "true" ]; then
-	path_prefix="/host"
+    export path_prefix="/host"
 fi
 
 # LOAD EXCLUDE LIST FROM excludes.txt INTO AN ARRAY
 excludes=()
 if [ -f excludes.txt ]; then
-	while IFS= read -r line || [ -n "$line" ]; do
-		if [ "${line}" = "" ] || { echo "${line}" | grep -q -E '^\s*#'; }; then
-			continue
-		fi
-		line="$(echo "${line}" | tr -d '[:space:]')"
-		excludes+=("$line")
-	done < excludes.txt
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [ "${line}" = "" ] || { echo "${line}" | grep -q -E '^\s*#'; }; then
+            continue
+        fi
+        line="$(echo "${line}" | tr -d '[:space:]')"
+        excludes+=("$line")
+    done < excludes.txt
 fi
-
-# GET ALL RUNNING DOCKER COMPOSE SERVICES
-compose_json="$(docker compose ls --format json | jq -r '[.[] | select(.Status | test("running\\("))]')"
-compose_count="$(printf '%s' "${compose_json}" | jq -r 'length')"
-
-# REMOVE EXCLUDED SERVICES FROM THE LIST
-compose_json_apply="${compose_json}"
-for exclude in "${excludes[@]}"; do
-	compose_json_apply="$(printf '%s' "${compose_json_apply}" | jq -r "map(select(.Name != \"${exclude}\"))")"
-done
-compose_count_apply="$(printf '%s' "${compose_json_apply}" | jq -r 'length')"
 
 # CHECK IF DRY RUN
 if [ "${dry_run}" = "true" ]; then
-	echo "-- This is a dry run. No changes will be made --"
+	echo "-- This is a dry run. No changes will be made --" | gum style --foreground 214 --bold
+	echo
+	dry_run_suffix=" (dry run)"
 fi
 
-# LIST ALL RUNNING DOCKER COMPOSE SERVICES
-echo "This will update ${compose_count_apply} of ${compose_count} running docker compose services:"
-for compose_b64 in $(printf '%s' "${compose_json}" | jq -r '.[] | @base64'); do
-	compose_entry="$(echo "${compose_b64}" | base64 -d)"
-	compose_name="$(echo "${compose_entry}" | jq -r '.Name')"
-	compose_file="$(echo "${compose_entry}" | jq -r '.ConfigFiles')"
-	compose_dir="$(dirname "${compose_file}")"
-	cd "${path_prefix}${compose_dir}"
-	compose_data="$(docker compose ps --format json)"
-	compose_running="$(printf '%s' "${compose_data}" | jq -r -s '.[0].RunningFor')"
-	compose_created="$(printf '%s' "${compose_data}" | jq -r -s '.[0].CreatedAt')"
-	compose_created_epoch="$(date -d "$(echo "${compose_created}" | sed -E 's/ [A-Z]+$//')" +%s)"
-	compose_created_days_ago="$((($(date +%s) - ${compose_created_epoch}) / 86400))"
-	if [ "${compose_created_days_ago}" -gt 240 ]; then
-		color="red"
-	elif [ "${compose_created_days_ago}" -gt 90 ]; then
-		color="orange"
-	elif [ "${compose_created_days_ago}" -gt 30 ]; then
-		color="yellow"
-	else
-		color="green"
-	fi
-	case "${color}" in
-		red) color_code='\033[0;31m' ;;
-		orange) color_code='\033[0;33m' ;;
-		yellow) color_code='\033[0;33m' ;;
-		green) color_code='\033[0;32m' ;;
-	esac
-	# CHECK IF COMPOSE IS IN THE EXCLUDES LIST
-	if [[ " ${excludes[@]} " =~ " ${compose_name} " ]]; then
-		exclude_msg=" ---EXCLUDING---"
-	else
-		exclude_msg=""
-	fi
-	printf "${color_code}  - ${compose_name} (${compose_running})${exclude_msg}\033[0m\n"
-done
+get_compose_data() {
+	# GET ALL RUNNING DOCKER COMPOSE SERVICES
+	compose_json="$(docker compose ls --format json | jq -r '[.[] | select(.Status | test("running\\("))]')"
+	compose_count="$(printf '%s' "${compose_json}" | jq -r 'length')"
 
-echo "If you wish to exclude any of these, add the name to the 'excludes.txt' file and run this script again."
+	# REMOVE EXCLUDED SERVICES FROM THE LIST
+	compose_json_apply="${compose_json}"
+	for exclude in "${excludes[@]}"; do
+		compose_json_apply="$(printf '%s' "${compose_json_apply}" | jq -r "map(select(.Name != \"${exclude}\"))")"
+	done
+	compose_count_apply="$(printf '%s' "${compose_json_apply}" | jq -r 'length')"
 
-if [ "${compose_count_apply}" -eq 0 ]; then
-	echo "No services to update."
-	exit 0
+	# LIST ALL RUNNING DOCKER COMPOSE SERVICES
+	services_list=()
+	preselected_options=""
+	for compose_b64 in $(printf '%s' "${compose_json}" | jq -r '.[] | @base64'); do
+		compose_entry="$(echo "${compose_b64}" | base64 -d)"
+		compose_name="$(echo "${compose_entry}" | jq -r '.Name')"
+		compose_file="$(echo "${compose_entry}" | jq -r '.ConfigFiles')"
+		compose_dir="$(dirname "${compose_file}")"
+		cd "${path_prefix}${compose_dir}"
+		compose_data="$(docker compose ps --format json)"
+		compose_running="$(printf '%s' "${compose_data}" | jq -r -s '.[0].RunningFor')"
+		compose_created="$(printf '%s' "${compose_data}" | jq -r -s '.[0].CreatedAt')"
+		compose_created_epoch="$(date -d "$(echo "${compose_created}" | sed -E 's/ [A-Z]+$//')" +%s)"
+		compose_created_days_ago="$((($(date +%s) - ${compose_created_epoch}) / 86400))"
+
+		# CHECK IF COMPOSE IS IN THE EXCLUDES LIST
+		if [[ " ${excludes[@]} " =~ " ${compose_name} " ]]; then
+			exclude_msg=" ---EXCLUDING---"
+		else
+			exclude_msg=""
+		fi
+
+		entry="${compose_name}~(${compose_running})"
+
+		# GENERATE PRESELECTED OPTIONS
+		if [ "${compose_created_days_ago}" -ge 7 ]; then
+			preselected_options="${preselected_options},${entry}"
+		fi
+		preselected_options="${preselected_options#,}"
+
+		services_list+=("${entry}")
+	done
+}
+export -f get_compose_data
+
+# SHOW SPINNER WHILE GETTING DOCKER COMPOSE INSTANCES
+eval "$(gum spin --spinner dot --title "Getting docker compose instances..." --show-output -- bash -c "source <(declare -f get_compose_data); get_compose_data; declare -p | grep -v '^declare -[[:alpha:]]*r'")"
+
+# PROMPT TO SELECT SERVICES TO UPDATE
+selected_compose=$(
+	for item in "${services_list[@]}"; do echo -e "${item}"; done | awk -F'~' '{printf "%-20s %-20s\n", $1, $2}' | \
+	gum choose \
+		--header "Select services to update (spacebar to select)" \
+		--no-limit \
+		--height $((${#services_list[@]} + 1)) \
+		--selected="${preselected_options}"
+)
+
+selected_services="$(echo "${selected_compose}" | grep -v -E '^\s*$' | awk '{print $1}')"
+selected_count="$(echo "${selected_compose}" | grep -v -E '^\s*$' | wc -l)"
+
+if [ "${selected_count}" -eq 0 ]; then
+    echo "No services to update." | gum style --foreground 196
+    exit 0
 fi
+
+gum style --border rounded --margin "1" --padding "0 2" --border-foreground 14 "
+$(echo "The following ${selected_count} services will be updated:" | gum style --foreground 214)
+$(echo "${selected_services}" | sed -E 's/^/- /g' | gum style --foreground 212)
+"
 
 # PROMPT TO CONTINUE
-printf "%s " "Press enter to continue or Ctrl+C to cancel"
-read ans
+response="$(gum confirm "Do you want to continue?")" || exit 1
 
 # UPDATE ALL RUNNING DOCKER COMPOSE SERVICES
 for compose_b64 in $(printf '%s' "${compose_json_apply}" | jq -r '.[] | @base64'); do
-	echo '---'
-	compose_entry="$(echo "${compose_b64}" | base64 -d)"
-	compose_name="$(echo "${compose_entry}" | jq -r '.Name')"
-	compose_file="$(echo "${compose_entry}" | jq -r '.ConfigFiles')"
-	compose_dir="$(dirname "${compose_file}")"
-	cd "${path_prefix}${compose_dir}"
-	printf "Updating '${compose_name}'..."
-	if [ "${dry_run}" = "true" ]; then
-		printf " (dry run)"
-	fi
-	printf "\n"
-	command="docker compose up --force-recreate --build --pull always -d"
-	if [ "${dry_run}" = "true" ]; then
-		echo "Command To Be Executed: ${command}"
-	else
-		eval "${command}"
-	fi
+    compose_entry="$(echo "${compose_b64}" | base64 -d)"
+    compose_name="$(echo "${compose_entry}" | jq -r '.Name')"
+	if ! echo "${selected_services}" | grep -wq "${compose_name}"; then continue; fi
+    compose_file="$(echo "${compose_entry}" | jq -r '.ConfigFiles')"
+    compose_dir="$(dirname "${compose_file}")"
+    cd "${path_prefix}${compose_dir}"
+    echo "--- Updating '${compose_name}'...${dry_run_suffix} ---" | gum style --foreground 212
+    command="docker compose up --force-recreate --build --pull always -d"
+    if [ "${dry_run}" = "true" ]; then
+        echo "Command To Be Executed: ${command}" | gum style --foreground 214
+    else
+        eval "${command}"
+    fi
 done
 
-echo '---'
-echo "done"
+echo '---' | gum style --foreground 212
+echo "done" | gum style --foreground 212
