@@ -102,13 +102,7 @@ get_compose_data() {
 			exclude_msg=""
 		fi
 
-		entry="${compose_name}~(${compose_running})"
-
-		# GENERATE PRESELECTED OPTIONS
-		if [ "${compose_created_days_ago}" -ge 7 ]; then
-			preselected_options="${preselected_options},${entry}"
-		fi
-		preselected_options="${preselected_options#,}"
+		entry="${compose_name}~(${compose_running})~${compose_created_days_ago}"
 
 		services_list+=("${entry}")
 	done
@@ -118,13 +112,26 @@ export -f get_compose_data
 # SHOW SPINNER WHILE GETTING DOCKER COMPOSE INSTANCES
 eval "$(gum spin --spinner dot --title "Getting docker compose instances..." --show-output -- bash -c "source <(declare -f get_compose_data); get_compose_data; declare -p | grep -v '^declare -[[:alpha:]]*r'")"
 
+# PRESELECT SERVICES THAT ARE OLDER THAN 7 DAYS
+max_service_length=$(for item in "${services_list[@]}"; do echo -e "${item}" | awk -F'~' '{print length($1)}'; done | sort -nr | head -1)
+services_list_formatted="$(for item in "${services_list[@]}"; do echo -e "${item}"; done | awk -F'~' -v max_service_length="$max_service_length" '{printf "%-"max_service_length"s %s~%s\n", $1, $2, $3}')"
+while IFS= read -r item; do
+	compose_created_days_ago="$(echo "${item}" | awk -F'~' '{print $2}')"
+	entry="$(echo "${item}" | awk -F'~' '{print $1}')"
+	if [ "${compose_created_days_ago}" -gt 7 ]; then
+		preselected_options="${preselected_options},${entry}"
+	fi
+	services_list_final+=("${entry}")
+done <<< "${services_list_formatted}"
+preselected_options="${preselected_options#,}"
+
 # PROMPT TO SELECT SERVICES TO UPDATE
 selected_compose=$(
-	for item in "${services_list[@]}"; do echo -e "${item}"; done | awk -F'~' '{printf "%-20s %-20s\n", $1, $2}' | \
+	for item in "${services_list_final[@]}"; do echo -e "${item}"; done | \
 	gum choose \
 		--header "Select services to update (spacebar to select)" \
 		--no-limit \
-		--height $((${#services_list[@]} + 1)) \
+		--height $((${#services_list_final[@]} + 1)) \
 		--selected="${preselected_options}"
 )
 
